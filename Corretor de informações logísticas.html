@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Corretor de informações logísticas</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+:root{color-scheme:light dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#e9eef4;--card:#fff;--ink:#14213d;--mut:#5d6b82;--line:#cfd8e3;--acc:#1d4ed8;--accfg:#fff;--y:#fff6a3;--o:#f8cbad;--p:#7030a0}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f172a;--card:#172036;--ink:#e6ebf5;--mut:#93a1bb;--line:#2a3654;--acc:#7aa2ff;--accfg:#0b1226}}
+:root[data-theme=dark]{--bg:#0f172a;--card:#172036;--ink:#e6ebf5;--mut:#93a1bb;--line:#2a3654;--acc:#7aa2ff;--accfg:#0b1226}
+*{box-sizing:border-box}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,"Segoe UI",Roboto,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:28px 16px 48px}
+h1{font-size:1.7rem;margin:0 0 4px;letter-spacing:-.02em}
+.mut{color:var(--mut)}
+#drop{display:block;margin:20px 0 8px;padding:28px 20px;border:2px dashed var(--line);border-radius:6px;background:var(--card);text-align:center;cursor:pointer}
+#drop:hover,#drop.on,#drop:focus-within{border-color:var(--acc)}
+#drop b{display:block;font-size:1.05rem}
+#msg{min-height:1.5em;margin:8px 0;color:var(--mut)}#msg.err{color:#c0392b}
+.chk{font-size:.9rem;color:var(--mut)}
+#kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:10px;margin:16px 0}
+.k{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--line);padding:10px 12px;border-radius:4px}
+.k b{display:block;font-size:1.6rem;font-variant-numeric:tabular-nums;line-height:1.2}
+.k span{font-size:.8rem;color:var(--mut)}
+.k.y{border-left-color:#e6d200}.k.o{border-left-color:#ee9a63}.k.p{border-left-color:var(--p)}
+button{font:inherit;cursor:pointer;border-radius:4px;border:1px solid var(--acc);background:var(--acc);color:var(--accfg);padding:8px 14px;margin:0 8px 8px 0}
+button.sec{background:transparent;color:var(--acc)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+#tabs{display:flex;gap:0;border-bottom:2px solid var(--line);margin:12px 0}
+#tabs button{background:none;color:var(--mut);border:0;border-bottom:3px solid transparent;margin:0 0 -2px;border-radius:0}
+#tabs button.on{color:var(--ink);border-bottom-color:var(--acc);font-weight:600}
+#flt{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+input[type=search],select{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:4px;background:var(--card);color:var(--ink);min-width:0}
+input[type=search]{flex:1 1 220px}
+.w{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:4px;margin-bottom:14px}
+table{border-collapse:collapse;width:100%;font-size:.85rem}
+th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{position:sticky;top:0;background:var(--card);font-weight:600}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.sw{display:inline-block;width:.8em;height:.8em;border-radius:2px;margin-right:6px;vertical-align:-1px}
+h2{font-size:1rem;margin:18px 0 6px}
+</style></head><body><main>
+<h1>Corretor de informações logísticas</h1>
+<p class="mut">Anexe a planilha e veja o que precisa ser alterado e o que foi alterado. Tudo roda no seu navegador: o arquivo não é enviado a lugar nenhum.</p>
+<label id="drop"><input id="f" type="file" accept=".xlsx" hidden><b>Clique ou arraste a planilha .xlsx aqui</b><span class="mut" id="fn">Colunas esperadas: Departamento, Secao, Codigo, Descricao, Altura, Largura, Profundidade, Peso</span></label>
+<label class="chk"><input id="gr" type="checkbox"> Tentar preencher também itens vendidos a granel (descrição termina em KG)</label>
+<div id="msg" role="status"></div>
+<section id="res" hidden>
+<div id="kpi"></div>
+<div><button id="dl">Baixar planilha preenchida</button><button id="dc" class="sec">Baixar lista “a pesquisar” (CSV)</button></div>
+<div id="tabs"><button data-t="g" class="on">Visão geral</button><button data-t="a">O que foi alterado</button><button data-t="p">A pesquisar</button></div>
+<div id="flt" hidden><input id="q" type="search" placeholder="Buscar por código ou descrição"><select id="sd"></select><select id="ss"></select></div>
+<div id="view"></div>
+</section></main>
+<script>
+"use strict";
+/* ===== Configuração (mesmos valores do programa em Python) ===== */
+const CFG={ign:["99 nao vendas"],ignSec:["servicos"],lim:.5,limSem:.7,fb:true,fbx:.15,razD:[.9,1.11],razP:[.4,2.5],tol:.3,
+dimMin:3,absSem:3000,refSem:1200,ph:20,dMin:.004,dMax:5,pMin:.3,pMax:8,gran:false};
+const DIMS=["Altura","Largura","Profundidade"],CAMPOS=[...DIMS,"Peso"],ST=["-","SIM","PARCIAL","NÃO","GRANEL","IGNORADO"];
+const COR={Y:"FFF6A3",O:"F8CBAD",P:"7030A0"};
+const MOT={ZERO:"Medida ou peso zerado",PLACEHOLDER:"Três medidas iguais e minúsculas (ex.: 10×10×10)",DIM_ABSURDA:"Medida impossível (ex.: 4500 mm)",
+PESO_INCOERENTE:"Peso incompatível com o tamanho da descrição",DENSIDADE:"Medidas incompatíveis com o peso",DENSIDADE_IMPLAUSIVEL:"Medidas e peso impossíveis juntos (não dá para saber qual está errado)"};
+const $=s=>document.querySelector(s),esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const nz=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
+const tick=()=>new Promise(r=>setTimeout(r));
+
+/* ===== Texto: tamanho declarado, palavras, embalagem ===== */
+const T=(()=>{
+const SZ=/(\d+(?:[.,]\d+)?)\s*(KG|GR|G|ML|LT|L)\b/g,MU=/(\d+)\s*X\s*(\d+(?:[.,]\d+)?)\s*(KG|GR|G|ML|LT|L)\b/g,
+PK=/\bC\s*\/?\s*(\d{1,3})\b|\b(\d{1,3})\s*X\b|\b(\d{1,3})\s*UN\b/,
+EMB=new Set("VD LT SHT SACHE POTE PET TP BAG CX PCT FR BISN BISNAGA TUBO SPRAY REFIL GF LATA VIDRO SQ BD BANDEJA ENVELOPE".split(" "));
+const norm=(v,u)=>u=="KG"?[v*1000,"P"]:(u=="G"||u=="GR")?[v,"P"]:(u=="L"||u=="LT")?[v*1000,"V"]:[v,"V"];
+const num=s=>parseFloat(s.replace(",","."));
+return{
+tam(d){const u=d.toUpperCase();MU.lastIndex=0;const m=MU.exec(u);
+ if(m){const x=norm(num(m[2]),m[3]);return[x[0]*Number(m[1]),x[1]]}
+ const a=[...u.matchAll(SZ)];if(!a.length)return null;const l=a[a.length-1];return norm(num(l[1]),l[2])},
+pack(d){const m=PK.exec(d.toUpperCase());return m?Number(m.slice(1).find(x=>x)):null},
+tok(d){const t=d.toUpperCase().replace(MU," ").replace(SZ," ");return new Set((t.match(/[A-ZÀ-Ú]+/g)||[]).filter(w=>w.length>1))},
+prim(d){const m=d.toUpperCase().match(/[A-ZÀ-Ú]+/);return m?m[0]:null},
+granel(d){const p=d.toUpperCase().split(/\s+/).filter(Boolean),n=p.length;return n>0&&p[n-1]=="KG"&&!(n>1&&/^\d+([.,]\d+)?$/.test(p[n-2]))},
+emb(tk){return new Set([...tk].filter(w=>EMB.has(w)))}};
+})();
+
+/* ===== Sanidade: o que está zerado ou sem sentido ===== */
+const S={
+lr:t=>!t?CFG.refSem:t[0]<=1000?400:t[0]<=3000?500:t[0]<=6000?600:750,
+la:t=>!t?CFG.absSem:S.lr(t)*2,
+dens(v){const[a,l,p,w]=CAMPOS.map(c=>v[c]);return Math.min(a,l,p,w)<=0?null:w/(a*l*p/1000)},
+ok:d=>d===null||(d>=CFG.dMin&&d<=CFG.dMax),
+diag(p){const v=p.v,pr={};
+ CAMPOS.forEach(c=>{if(v[c]<=0)pr[c]="ZERO"});
+ const d=DIMS.map(c=>v[c]);
+ if(d.every(x=>x>0)&&d[0]==d[1]&&d[1]==d[2]&&(d[0]<=CFG.ph||!S.ok(S.dens(v))))DIMS.forEach(c=>pr[c]="PLACEHOLDER");
+ DIMS.forEach(c=>{const x=v[c];if(x>0&&!(c in pr)&&(x<CFG.dimMin||x>S.la(p.tam)))pr[c]="DIM_ABSURDA"});
+ if(v.Peso>0&&p.tam){const r=v.Peso/p.tam[0];if(r<CFG.pMin||r>CFG.pMax)pr.Peso="PESO_INCOERENTE"}
+ p.rev=null;
+ if(!Object.keys(pr).length&&!S.ok(S.dens(v))){if(p.tam)DIMS.forEach(c=>pr[c]="DENSIDADE");else p.rev="DENSIDADE_IMPLAUSIVEL"}
+ p.prob=pr;const t=S.lr(p.tam);p.dok=DIMS.every(c=>v[c]>=CFG.dimMin&&v[c]<=t)}};
+
+/* ===== Similaridade: escolhe o produto parecido ===== */
+const M={
+jac(a,b){if(!a.size||!b.size)return 0;let i=0;for(const x of a)if(b.has(x))i++;return i/(a.size+b.size-i)},
+base(a,c){if(c.row==a.row||a.prim!=c.prim)return false;if(a.pack&&c.pack&&a.pack!=c.pack)return false;
+ if(a.emb.size&&c.emb.size&&![...a.emb].some(x=>c.emb.has(x)))return false;return true},
+raz(a,c){if(!a.tam&&!c.tam)return[true,null];if(!a.tam||!c.tam||a.tam[1]!=c.tam[1]||c.tam[0]<=0)return[false,null];return[true,a.tam[0]/c.tam[0]]},
+lim:(sem,x)=>(sem?CFG.limSem:CFG.lim)+x,
+dc:c=>!c.rev&&c.dok&&DIMS.every(k=>c.v[k]>0&&!(k in c.prob)),
+pc:c=>!c.rev&&c.v.Peso>0&&!("Peso" in c.prob),
+coer(a,c){return DIMS.every(k=>{const e=a.v[k];return!(e>0&&!(k in a.prob))||Math.abs(e-c.v[k])/c.v[k]<=CFG.tol})},
+dims(a,pool,x){let b=null,r0=0;
+ for(const c of pool){if(!M.dc(c)||!M.base(a,c))continue;const[ok,r]=M.raz(a,c);if(!ok)continue;
+  if(r!==null&&(r<CFG.razD[0]||r>CFG.razD[1]))continue;
+  const s=M.jac(a.tok,c.tok);if(s<M.lim(r===null,x))continue;
+  const rk=r?s-.05*Math.abs(Math.log(r)):s;if(rk<=r0||!M.coer(a,c))continue;b=c;r0=rk}
+ return b},
+peso(a,pool,x){let b=null,val=null,r0=0;
+ for(const c of pool){if(!M.pc(c)||!M.base(a,c))continue;const[ok,r]=M.raz(a,c);if(!ok)continue;let v=c.v.Peso;
+  if(r!==null){if(r<CFG.razP[0]||r>CFG.razP[1])continue;v=Math.round(v*r)}
+  const s=M.jac(a.tok,c.tok);if(s<M.lim(r===null,x))continue;
+  const rk=r?s-.05*Math.abs(Math.log(r)):s;if(rk<=r0)continue;b=c;val=v;r0=rk}
+ return[b,val]}};
+
+/* ===== Planilha: leitura e escrita (ExcelJS) ===== */
+async function ler(buf){
+ const wb=new ExcelJS.Workbook();await wb.xlsx.load(buf);const ws=wb.worksheets[0],cab={};
+ ws.getRow(1).eachCell((c,i)=>{const t=String(c.text||"").trim();if(t)cab[t]=i});
+ const falta=["Departamento","Secao","Codigo","Descricao",...CAMPOS].filter(k=>!(k in cab));
+ if(falta.length)throw new Error("Colunas não encontradas na primeira linha: "+falta.join(", "));
+ if("Alterado" in cab)throw new Error("Esta planilha já foi processada (tem a coluna Alterado). Use a original.");
+ const nm=v=>{if(v&&typeof v=="object"&&"result" in v)v=v.result;const n=parseFloat(v);return isNaN(n)?0:n};
+ const prods=[];
+ for(let r=2;r<=ws.rowCount;r++){const row=ws.getRow(r),g=k=>row.getCell(cab[k]),desc=String(g("Descricao").text||"");if(!desc)continue;
+  const p={row:r,dep:g("Departamento").text,secao:g("Secao").text,cod:g("Codigo").text,desc,v:{},st:null,prob:{},rev:null,novos:{},refs:[],ref:{},orig:{}};
+  CAMPOS.forEach(c=>p.v[c]=nm(g(c).value));
+  p.tok=T.tok(desc);p.prim=T.prim(desc);p.tam=T.tam(desc);p.pack=T.pack(desc);p.emb=T.emb(p.tok);
+  if(CFG.ign.includes(nz(p.dep))||CFG.ignSec.includes(nz(p.secao)))p.st="IGNORADO";
+  else if(!CFG.gran&&T.granel(desc))p.st="GRANEL";
+  prods.push(p)}
+ return{wb,ws,cab,prods}}
+
+async function processar(prods,prog){
+ const at=prods.filter(p=>!p.st);at.forEach(S.diag);
+ const sec={},dep={};at.forEach(p=>{(sec[p.secao]=sec[p.secao]||[]).push(p);(dep[p.dep]=dep[p.dep]||[]).push(p)});
+ let i=0;
+ for(const p of at){
+  if(++i%200==0){prog(i/at.length);await tick()}
+  const pend=Object.keys(p.prob);
+  if(!pend.length&&!p.rev){p.st="-";continue}
+  const esc=[[sec[p.secao],0]];if(CFG.fb)esc.push([dep[p.dep],CFG.fbx]);
+  const dp=DIMS.filter(c=>c in p.prob);
+  if(dp.length)for(const[pool,x]of esc){const r=M.dims(p,pool,x);if(r){const t="Medidas: "+r.cod+" - "+r.desc;
+   dp.forEach(c=>{if(p.v[c]>0)p.orig[c]=p.v[c];p.novos[c]=r.v[c];p.ref[c]=t});p.refs.push(t);break}}
+  if("Peso" in p.prob)for(const[pool,x]of esc){const[r,val]=M.peso(p,pool,x);if(r){const t="Peso: "+r.cod+" - "+r.desc+(val==r.v.Peso?"":" (ajustado ao tamanho)");
+   if(p.v.Peso>0)p.orig.Peso=p.v.Peso;p.novos.Peso=val;p.ref.Peso=t;p.refs.push(t);break}}
+  const n=Object.keys(p.novos).length;
+  p.st=p.rev?"NÃO":n==pend.length?"SIM":n?"PARCIAL":"NÃO"}}
+
+function resumo(prods){
+ const R={n:prods.length,tab:[["Departamento",...ST,"Total"]],ch:[],pq:[],mot:{},y:0,o:0},deps=[...new Set(prods.map(p=>p.dep))].sort();
+ const cnt={};prods.forEach(p=>{const k=p.dep+"|"+p.st;cnt[k]=(cnt[k]||0)+1});
+ deps.forEach(d=>{const l=ST.map(s=>cnt[d+"|"+s]||0);R.tab.push([d,...l,l.reduce((a,b)=>a+b,0)])});
+ R.tab.push(["TOTAL",...ST.map((_,i)=>R.tab.slice(1).reduce((a,r)=>a+r[i+1],0)),prods.length]);
+ R.c=Object.fromEntries(ST.map((s,i)=>[s,R.tab[R.tab.length-1][i+1]]));
+ prods.forEach(p=>{
+  Object.entries(p.novos).forEach(([c,n])=>{const cor=c in p.orig;cor?R.o++:R.y++;
+   R.ch.push({cod:p.cod,desc:p.desc,dep:p.dep,campo:c,antes:p.orig[c]||0,depois:Math.round(n),tipo:cor?"Corrigido":"Preenchido",ref:p.ref[c]})});
+  const ms=new Set([...Object.values(p.prob),...(p.rev?[p.rev]:[])]);
+  ms.forEach(m=>{const o=R.mot[m]=R.mot[m]||[0,0,0];o[0]++;
+   const campos=Object.keys(p.prob).filter(c=>p.prob[c]==m);(campos.length&&campos.every(c=>c in p.novos))?o[1]++:o[2]++});
+  if(p.st=="NÃO"||p.st=="PARCIAL"){const pend=p.rev?CAMPOS:CAMPOS.filter(c=>c in p.prob&&!(c in p.novos));
+   R.pq.push({cod:p.cod,desc:p.desc,dep:p.dep,secao:p.secao,v:CAMPOS.map(c=>p.novos[c]!=null?Math.round(p.novos[c]):p.v[c]),pend,motivo:[...ms].sort()})}});
+ return R}
+
+async function gravar(wb,ws,cab,prods,tab){
+ const nc=["Alterado","Campos_Preenchidos","Produto_Referencia","Motivo","Valor_Original"],c0=ws.columnCount+1,col={};
+ nc.forEach((n,i)=>{col[n]=c0+i;const c=ws.getCell(1,c0+i);c.value=n;c.font={bold:true};ws.getColumn(c0+i).width=[11,30,60,28,28][i]});
+ ws.getCell(1,col.Alterado).note="-: completo | SIM: tudo resolvido | PARCIAL: só parte | NÃO: pesquisar (roxo) | GRANEL e IGNORADO: não mexidos.\nAmarelo: zero preenchido. Laranja: valor sem sentido corrigido (antigo em Valor_Original).";
+ const fill=a=>({type:"pattern",pattern:"solid",fgColor:{argb:"FF"+a}});
+ for(const p of prods){const row=ws.getRow(p.row);row.getCell(col.Alterado).value=p.st;
+  for(const[c,n]of Object.entries(p.novos)){const x=row.getCell(cab[c]);x.value=Math.round(n);x.fill=fill(c in p.orig?COR.O:COR.Y)}
+  if(p.refs.length){row.getCell(col.Campos_Preenchidos).value=Object.keys(p.novos).join(", ");row.getCell(col.Produto_Referencia).value=p.refs.join("; ")}
+  const ms=[...new Set([...Object.values(p.prob),...(p.rev?[p.rev]:[])])].sort();
+  if(ms.length)row.getCell(col.Motivo).value=ms.join(", ");
+  if(Object.keys(p.orig).length)row.getCell(col.Valor_Original).value=Object.entries(p.orig).map(([c,v])=>c+": "+Math.round(v)).join("; ");
+  if(p.st=="NÃO"||p.st=="PARCIAL"){
+   const pend=p.rev?CAMPOS:CAMPOS.filter(c=>c in p.prob&&!(c in p.novos));
+   [cab.Departamento,cab.Secao,cab.Codigo,cab.Descricao,col.Alterado,...pend.map(c=>cab[c])].forEach(i=>{const x=row.getCell(i);x.fill=fill(COR.P);x.font={color:{argb:"FFFFFFFF"}}})}}
+ const rs=wb.addWorksheet("Resumo");rs.addRows(tab);rs.getRow(1).font={bold:true};rs.getColumn(1).width=36;
+ return wb.xlsx.writeBuffer()}
+
+/* ===== Interface ===== */
+let R=null,TAB="g",LIM=300;
+const tbl=(h,rows,nums=[])=>`<div class="w"><table><tr>${h.map((x,i)=>`<th class="${nums.includes(i)?"n":""}">${esc(x)}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map((x,i)=>`<td class="${nums.includes(i)?"n":""}">${esc(x)}</td>`).join("")}</tr>`).join("")}</table></div>`;
+const opts=(el,arr,first)=>{el.innerHTML=`<option value="">${esc(first)}</option>`+arr.map(a=>`<option>${esc(a)}</option>`).join("")};
+function show(){
+ const c=R.c,k=(cl,n,t)=>`<div class="k ${cl}"><b>${n.toLocaleString("pt-BR")}</b><span>${t}</span></div>`;
+ $("#kpi").innerHTML=k("",R.n,"produtos lidos")+k("",c["-"],"já corretos")+k("y",c.SIM+c.PARCIAL,"com preenchimento")+k("y",R.y,"células zeradas preenchidas")+k("o",R.o,"células corrigidas (sem sentido)")+k("p",c["NÃO"]+c.PARCIAL,"a pesquisar")+k("",c.GRANEL+c.IGNORADO,"não mexidos (granel/ignorados)");
+ $("#res").hidden=false;tab("g")}
+function tab(t){TAB=t;LIM=300;document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.t==t));
+ if(t=="a"){opts($("#sd"),[...new Set(R.ch.map(x=>x.dep))].sort(),"Todos os departamentos");opts($("#ss"),["Preenchido","Corrigido"],"Preenchido e corrigido")}
+ if(t=="p"){opts($("#sd"),[...new Set(R.pq.map(x=>x.dep))].sort(),"Todos os departamentos");opts($("#ss"),Object.keys(MOT),"Todos os motivos")}
+ $("#q").value="";draw()}
+function draw(){
+ $("#flt").hidden=TAB=="g";const box=$("#view");
+ if(TAB=="g"){
+  const mrows=Object.entries(R.mot).sort((a,b)=>b[1][0]-a[1][0]).map(([m,o])=>[MOT[m]||m,o[0],o[1],o[2]]);
+  box.innerHTML=`<h2>Por departamento</h2>`+tbl(R.tab[0],R.tab.slice(1),[1,2,3,4,5,6,7])+
+  `<h2>O que estava errado</h2>`+tbl(["Problema","Encontrados","Resolvidos","A pesquisar"],mrows,[1,2,3])+
+  `<p class="mut"><span class="sw" style="background:var(--y)"></span>amarelo: valor zerado preenchido &nbsp; <span class="sw" style="background:var(--o)"></span>laranja: valor sem sentido corrigido &nbsp; <span class="sw" style="background:var(--p)"></span>roxo: sem produto parecido, precisa pesquisar. Os valores vêm de produtos parecidos da mesma seção: são estimativas, revise antes de usar.</p>`;return}
+ const q=$("#q").value.toLowerCase(),d=$("#sd").value,s=$("#ss").value,a=TAB=="a";
+ const L=(a?R.ch:R.pq).filter(x=>(!d||x.dep==d)&&(!s||(a?x.tipo==s:x.motivo.includes(s)))&&(!q||(x.cod+" "+x.desc).toLowerCase().includes(q)));
+ const sh=L.slice(0,LIM);
+ box.innerHTML=`<p class="mut">${L.length.toLocaleString("pt-BR")} itens${L.length>LIM?" (mostrando "+LIM+")":""}</p>`+
+ (a?tbl(["Código","Descrição","Campo","Antes","Depois","Tipo","Referência"],sh.map(x=>[x.cod,x.desc,x.campo,x.antes||"—",x.depois,x.tipo,x.ref]),[3,4])
+  :tbl(["Código","Descrição","Seção","Alt × Larg × Prof (mm)","Peso (g)","Falta","Motivo"],sh.map(x=>[x.cod,x.desc,x.secao,x.v.slice(0,3).join(" × "),x.v[3],x.pend.join(", "),x.motivo.map(m=>MOT[m]||m).join("; ")]),[4]))+
+ (L.length>LIM?`<button id="more" class="sec">Mostrar mais</button>`:"");
+ const m=$("#more");if(m)m.onclick=()=>{LIM+=300;draw()}}
+function baixar(blob,nome){const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=nome;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
+async function run(file){
+ const msg=$("#msg");msg.className="";$("#res").hidden=true;CFG.gran=$("#gr").checked;$("#fn").textContent=file.name;msg.textContent="Lendo a planilha…";
+ try{
+  const{wb,ws,cab,prods}=await ler(await file.arrayBuffer());
+  msg.textContent=prods.length.toLocaleString("pt-BR")+" produtos lidos. Analisando…";await tick();
+  await processar(prods,p=>{msg.textContent="Analisando… "+Math.round(p*100)+"%"});
+  msg.textContent="Montando a planilha de saída…";await tick();
+  R=resumo(prods);R.nome=file.name.replace(/\.xlsx$/i,"")+"_preenchido.xlsx";
+  R.blob=new Blob([await gravar(wb,ws,cab,prods,R.tab)],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  msg.textContent="Pronto.";show()
+ }catch(e){msg.className="err";msg.textContent="Não deu certo: "+e.message}}
+$("#f").onchange=e=>e.target.files[0]&&run(e.target.files[0]);
+const dz=$("#drop");
+["dragenter","dragover"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add("on")}));
+["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove("on")}));
+dz.addEventListener("drop",e=>{const f=e.dataTransfer.files[0];f&&run(f)});
+document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>tab(b.dataset.t));
+["q","sd","ss"].forEach(i=>$("#"+i).addEventListener(i=="q"?"input":"change",()=>{LIM=300;draw()}));
+$("#dl").onclick=()=>baixar(R.blob,R.nome);
+$("#dc").onclick=()=>{const e=v=>'"'+String(v).replace(/"/g,'""')+'"',h=["Codigo","Descricao","Departamento","Secao",...CAMPOS,"Falta","Motivo"];
+ const l=R.pq.map(x=>[x.cod,x.desc,x.dep,x.secao,...x.v,x.pend.join(", "),x.motivo.join(", ")].map(e).join(";"));
+ baixar(new Blob(["\ufeff"+[h.map(e).join(";"),...l].join("\r\n")],{type:"text/csv;charset=utf-8"}),"a_pesquisar.csv")};
+</script></body></html>
